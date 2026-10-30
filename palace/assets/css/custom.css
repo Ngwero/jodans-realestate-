@@ -1,0 +1,200 @@
+/* Custom CSS - Reduce Header Padding */
+
+/* Reduce padding on logo box */
+.main-header .header-lower .logo-box {
+    padding: 8px 0px !important;
+}
+
+/* Reduce padding when header is fixed */
+.main-header.fixed-header .header-lower .logo-box {
+    padding: 5px 0px !important;
+}
+
+/* Control logo size to reduce white space */
+.main-header .header-lower .logo-box .logo img {
+    max-height: 88px !important;
+    width: auto !important;
+    object-fit: contain !important;
+}
+
+.page-one-logo {
+    display: block;
+    height: 160px;
+    width: auto;
+    max-width: 240px;
+    object-fit: contain;
+    margin: 0 0 18px;
+}
+
+/* Reduce footer logo size */
+.footer-logo img {
+    max-height: 40px !important;
+    width: auto !important;
+    object-fit: contain !important;
+}
+
+/* Reduce mobile menu logo size */
+.mobile-menu .nav-logo img {
+    max-height: 72px !important;
+    max-width: 200px !important;
+    width: auto !important;
+    object-fit: contain !important;
+}
+
+/* Reduce top bar padding */
+.main-header .header-top {
+    padding: 8px 0px !important;
+}
+
+/* Reduce spacing between header sections */
+.main-header .header-lower {
+    padding: 0 !important;
+}
+
+/* Reduce navigation item spacing */
+.main-header .main-menu .navigation > li {
+    margin-right: 20px !important;
+}
+
+/* Tighten up the header overall */
+.main-header .header-lower .inner-container {
+    padding: 0 !important;
+}
+
+/* Reduce vertical alignment spacing */
+.main-header .header-lower .d-flex {
+    gap: 0 !important;
+}
+
+/* Add bottom padding to hero slider section */
+.slider-one {
+    padding-bottom: 120px !important;
+}
+
+/* Add bottom padding to slider content inner */
+.slider-one_content-inner {
+    padding-bottom: 60px !important;
+}
+
+/* Responsive padding for smaller screens - Increased for mobile */
+@media (max-width: 768px) {
+    .slider-one {
+        padding-bottom: 150px !important;
+        padding-top: 60px !important;
+    }
+    
+    .slider-one_content-inner {
+        padding-top: 100px !important;
+        padding-bottom: 80px !important;
+    }
+}
+
+/* Additional mobile adjustments for very small screens */
+@media (max-width: 480px) {
+    .slider-one {
+        padding-bottom: 130px !important;
+        padding-top: 50px !important;
+    }
+    
+    .slider-one_content-inner {
+        padding-top: 80px !important;
+        padding-bottom: 80px !important;
+    }
+}
+
+/* Footer Styling - White Background and Blue Text */
+.main-footer:before {
+    background-color: #ffffff !important;
+}
+
+.footer-text {
+    color: #09354d !important;
+}
+
+.footer-title {
+    color: #09354d !important;
+}
+
+.footer-list li a {
+    color: rgba(9, 53, 77, 0.80) !important;
+}
+
+.footer-list li a:hover {
+    color: #09354d !important;
+}
+
+.footer-contact_list li {
+    color: rgba(9, 53, 77, 0.80) !important;
+}
+
+.footer-contact_list li a {
+    color: #09354d !important;
+}
+
+.footer-contact_list li a:hover {
+    color: #09354d !important;
+}
+
+.main-footer .footer-bottom .copyright {
+    color: rgba(9, 53, 77, 0.80) !important;
+}
+
+.main-footer .footer-bottom .copyright a {
+    color: #09354d !important;
+}
+
+.footer-bottom_nav li a {
+    color: rgba(9, 53, 77, 0.80) !important;
+}
+
+.footer-bottom_nav li a:hover {
+    color: #09354d !important;
+}
+
+.footer-location_inner {
+    color: rgba(9, 53, 77, 0.80) !important;
+}
+
+.footer_socials a {
+    color: #09354d !important;
+    border-color: rgba(9, 53, 77, 0.20) !important;
+}
+
+.footer_socials a:hover {
+    color: #ffffff !important;
+    background-color: #09354d !important;
+    border-color: #09354d !important;
+}
+
+.main-footer .footer-bottom:before {
+    background-color: #ffffff !important;
+}
+
+.footer-bottom_nav li {
+    border-right-color: rgba(9, 53, 77, 0.20) !important;
+}
+
+.footer-contact_list li:nth-child(2) a {
+    border-bottom-color: rgba(9, 53, 77, 0.20) !important;
+}
+
+/* Company One Section - Add More Bottom Padding */
+.company-one {
+    padding-bottom: 150px !important;
+}
+
+/* Center team cards in team sections */
+.team-two .row.clearfix,
+.team-three .row.clearfix {
+    justify-content: center;
+}
+
+/* Team photos: fill circular frame (no side gaps) */
+.team-block_one-image img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    object-position: center 20%;
+}
+

@@ -1,0 +1,7 @@
+# Prefer www for SEO (canonical domain)
+RewriteEngine On
+RewriteCond %{HTTP_HOST} ^jodansconcepts\.com$ [NC]
+RewriteRule ^(.*)$ https://www.jodansconcepts.com/$1 [L,R=301]
+
+# Serve index.html for directory requests
+DirectoryIndex index.html index.htm
