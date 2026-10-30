@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, type ActivityItem, type ListingDto } from '../../lib/api'
 import { formatPrice } from '../../data/listings'
+import { PhotoUploader } from '../../components/PhotoUploader'
 
 export function AdminListingDetail() {
   const { id } = useParams()
@@ -31,7 +32,7 @@ export function AdminListingDetail() {
     baths: '',
     phone: '',
     description: '',
-    image: '',
+    images: [] as string[],
   })
 
   const load = () => {
@@ -57,7 +58,7 @@ export function AdminListingDetail() {
           baths: String(res.listing.baths || ''),
           phone: res.listing.phone || '',
           description: res.listing.description || '',
-          image: res.listing.images?.[0] || '',
+          images: res.listing.images || [],
         })
       })
       .catch((e) => setError(e.message))
@@ -84,6 +85,10 @@ export function AdminListingDetail() {
   const save = async (e: FormEvent) => {
     e.preventDefault()
     if (!id) return
+    if (!form.images.length) {
+      setError('Add at least one photo')
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -101,9 +106,7 @@ export function AdminListingDetail() {
         baths: Number(form.baths),
         phone: form.phone,
         description: form.description,
-        images: form.image
-          ? [form.image, ...(listing?.images?.slice(1) || [])]
-          : listing?.images,
+        images: form.images,
       })
       load()
     } catch (err) {
@@ -343,13 +346,10 @@ export function AdminListingDetail() {
                 />
               </label>
             </div>
-            <label>
-              Primary image URL
-              <input
-                value={form.image}
-                onChange={(e) => setForm((f) => ({ ...f, image: e.target.value }))}
-              />
-            </label>
+            <PhotoUploader
+              images={form.images}
+              onChange={(images) => setForm((f) => ({ ...f, images }))}
+            />
             <label>
               Description
               <textarea

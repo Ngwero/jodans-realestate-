@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { PhotoUploader } from '../../components/PhotoUploader'
 import { api } from '../../lib/api'
 
 const empty = {
@@ -16,12 +17,17 @@ const empty = {
   baths: '1',
   phone: '',
   description: '',
-  image: '',
+  images: [] as string[],
 }
 
-export function HostListingForm() {
+type Props = {
+  audience?: 'host' | 'admin'
+}
+
+export function HostListingForm({ audience = 'host' }: Props) {
   const { id } = useParams()
   const isEdit = Boolean(id)
+  const isAdmin = audience === 'admin'
   const navigate = useNavigate()
   const [form, setForm] = useState(empty)
   const [error, setError] = useState('')
@@ -48,13 +54,13 @@ export function HostListingForm() {
           baths: String(listing.baths || 1),
           phone: listing.phone || '',
           description: listing.description || '',
-          image: listing.images?.[0] || '',
+          images: listing.images || [],
         })
       })
       .catch((e) => setError(e.message))
   }, [id])
 
-  const set = (key: keyof typeof empty, value: string) => {
+  const set = (key: Exclude<keyof typeof empty, 'images'>, value: string) => {
     setForm((f) => ({ ...f, [key]: value }))
   }
 
@@ -76,12 +82,24 @@ export function HostListingForm() {
       baths: Number(form.baths),
       phone: form.phone,
       description: form.description,
-      images: form.image ? [form.image, form.image, form.image] : undefined,
+      images: form.images,
+    }
+    if (!form.images.length) {
+      setError('Add at least one photo')
+      setLoading(false)
+      return
     }
     try {
-      if (isEdit && id) await api.updateListing(id, payload)
-      else await api.createListing(payload)
-      navigate('/host')
+      if (isAdmin && !isEdit) {
+        const res = await api.createAdminListing(payload)
+        navigate(`/admin/listings/${res.listing.id}`)
+      } else if (isEdit && id) {
+        await api.updateListing(id, payload)
+        navigate(isAdmin ? `/admin/listings/${id}` : '/host')
+      } else {
+        await api.createListing(payload)
+        navigate('/host')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save')
     } finally {
@@ -93,10 +111,14 @@ export function HostListingForm() {
     <div className="portal-page">
       <header className="portal-page-head">
         <div>
-          <h1>{isEdit ? 'Edit property' : 'Add a property'}</h1>
-          <p>New listings go to admin for approval before they appear publicly.</p>
+          <h1>{isEdit ? 'Edit property' : isAdmin ? 'Add a listing' : 'Add a property'}</h1>
+          <p>
+            {isAdmin
+              ? 'Published listings appear on the property page immediately.'
+              : 'New listings go to admin for approval before they appear publicly.'}
+          </p>
         </div>
-        <Link to="/host" className="btn btn-ghost">
+        <Link to={isAdmin ? '/admin/listings' : '/host'} className="btn btn-ghost">
           Cancel
         </Link>
       </header>
@@ -203,14 +225,7 @@ export function HostListingForm() {
             />
           </label>
         </div>
-        <label>
-          Photo URL
-          <input
-            value={form.image}
-            onChange={(e) => set('image', e.target.value)}
-            placeholder="https://…"
-          />
-        </label>
+        <PhotoUploader images={form.images} onChange={(images) => setForm((f) => ({ ...f, images }))} />
         <label>
           Description
           <textarea
@@ -222,7 +237,7 @@ export function HostListingForm() {
         </label>
         {error && <p className="portal-error">{error}</p>}
         <button className="btn btn-primary" type="submit" disabled={loading}>
-          {loading ? 'Saving…' : isEdit ? 'Save changes' : 'Submit for approval'}
+          {loading ? 'Saving…' : isEdit ? 'Save changes' : isAdmin ? 'Publish listing' : 'Submit for approval'}
         </button>
       </form>
     </div>

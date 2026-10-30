@@ -31,7 +31,15 @@ export function PortalLayout({ role, links }: Props) {
 
   const isOn = (to: string) => {
     if (to === `/${role}`) return location.pathname === to
-    return location.pathname === to || location.pathname.startsWith(`${to}/`)
+    const match = location.pathname === to || location.pathname.startsWith(`${to}/`)
+    if (!match) return false
+    const moreSpecific = links.some(
+      (link) =>
+        link.to !== to &&
+        link.to.startsWith(`${to}/`) &&
+        (location.pathname === link.to || location.pathname.startsWith(`${link.to}/`)),
+    )
+    return !moreSpecific
   }
 
   return (

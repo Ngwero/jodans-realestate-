@@ -237,4 +237,21 @@ export const api = {
       `/api/admin/hosts/${id}`,
       { method: 'PATCH', body: JSON.stringify({ active }) },
     ),
+  createAdminListing: (body: Record<string, unknown>) =>
+    request<{ listing: ListingDto }>('/api/admin/listings', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  uploadPhotos: async (files: File[]) => {
+    const body = new FormData()
+    files.forEach((file) => body.append('photos', file))
+    const res = await fetch(`${API_BASE}/api/uploads`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error || 'Upload failed')
+    return (data.urls || []) as string[]
+  },
 }

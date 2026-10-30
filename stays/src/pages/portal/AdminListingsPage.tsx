@@ -127,6 +127,9 @@ export function AdminListingsPage() {
             {hostId ? ' · filtered by host' : ''}
           </p>
         </div>
+        <Link to="/admin/listings/new" className="btn btn-primary">
+          Add listing
+        </Link>
       </header>
 
       <div className="portal-toolbar admin-toolbar">

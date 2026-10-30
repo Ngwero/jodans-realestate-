@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import multer from 'multer'
 import { v4 as uuid } from 'uuid'
 import { resolvePlace } from './ugandaPlaces.js'
 
@@ -14,6 +15,8 @@ const SEED_PATH = path.join(__dirname, '../src/data/red-scraped.json')
 
 const PORT = Number(process.env.PORT || 4000)
 const SECRET = process.env.JB_SECRET || 'jodans-bloka-dev-secret'
+const UPLOAD_DIR = path.join(__dirname, '../public/uploads')
+const PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 
 function ensureDb() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
@@ -156,14 +159,99 @@ function publicListing(listing) {
   return rest
 }
 
+function cleanImages(images) {
+  if (!Array.isArray(images)) return []
+  return images
+    .map((src) => String(src || '').trim())
+    .filter((src) => src.startsWith('/uploads/') || /^https?:\/\//i.test(src))
+    .slice(0, 8)
+}
+
+function buildListing(body, { hostId, hostName, approval }) {
+  const required = ['title', 'location', 'region', 'type', 'price']
+  for (const key of required) {
+    if (body[key] === undefined || body[key] === '') {
+      return { error: `${key} is required` }
+    }
+  }
+  const images = cleanImages(body.images)
+  if (!images.length) return { error: 'Add at least one photo' }
+  const now = new Date().toISOString()
+  const place = resolvePlace(body)
+  return {
+    listing: {
+      id: uuid(),
+      code: String(Math.floor(100000 + Math.random() * 900000)),
+      title: String(body.title),
+      location: String(body.location),
+      region: String(body.region),
+      district: String(body.district || place.district || 'Kampala'),
+      price: Number(body.price) || 0,
+      currency: body.currency === 'USD' ? 'USD' : 'UGX',
+      rating: 4.8,
+      reviews: 0,
+      guests: Number(body.guests) || Math.max(2, Number(body.bedrooms || 1) * 2),
+      bedrooms: Number(body.bedrooms) || 1,
+      beds: Number(body.beds) || Number(body.bedrooms) || 1,
+      baths: Number(body.baths) || 1,
+      type: String(body.type),
+      category: String(body.category || 'city'),
+      host: hostName,
+      hostYears: 1,
+      phone: String(body.phone || ''),
+      status: body.status === 'For Rent' ? 'For Rent' : 'For Sale',
+      description: String(body.description || ''),
+      amenities: Array.isArray(body.amenities) ? body.amenities : ['Parking', 'Security', 'Water'],
+      images,
+      hostId,
+      approval,
+      createdAt: now,
+      updatedAt: now,
+      lat: place.lat,
+      lng: place.lng,
+    },
+  }
+}
+
+fs.mkdirSync(UPLOAD_DIR, { recursive: true })
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase()
+      const safe = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext) ? ext : '.jpg'
+      cb(null, `${uuid()}${safe}`)
+    },
+  }),
+  limits: { fileSize: 8 * 1024 * 1024, files: 8 },
+  fileFilter: (_req, file, cb) => {
+    if (!PHOTO_TYPES.has(file.mimetype)) {
+      cb(new Error('Only JPEG, PNG, WebP, or GIF photos are allowed'))
+      return
+    }
+    cb(null, true)
+  },
+})
+
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
+app.use('/uploads', express.static(UPLOAD_DIR))
 
 ensureDb()
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'jodans-bloka-api' })
+})
+
+app.post('/api/uploads', auth(), (req, res) => {
+  upload.array('photos', 8)(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Upload failed' })
+    const files = req.files || []
+    if (!files.length) return res.status(400).json({ error: 'Choose at least one photo' })
+    res.status(201).json({ urls: files.map((file) => `/uploads/${file.filename}`) })
+  })
 })
 
 app.post('/api/auth/login', (req, res) => {
@@ -248,60 +336,22 @@ app.get('/api/host/listings', auth('host'), (req, res) => {
 })
 
 app.post('/api/host/listings', auth('host'), (req, res) => {
-  const body = req.body || {}
-  const required = ['title', 'location', 'region', 'type', 'price']
-  for (const key of required) {
-    if (body[key] === undefined || body[key] === '') {
-      return res.status(400).json({ error: `${key} is required` })
-    }
-  }
-  const now = new Date().toISOString()
-  const listing = {
-    id: uuid(),
-    code: String(Math.floor(100000 + Math.random() * 900000)),
-    title: String(body.title),
-    location: String(body.location),
-    region: String(body.region),
-    district: String(body.district || 'Kampala'),
-    price: Number(body.price) || 0,
-    currency: body.currency === 'USD' ? 'USD' : 'UGX',
-    rating: 4.8,
-    reviews: 0,
-    guests: Number(body.guests) || Math.max(2, Number(body.bedrooms || 1) * 2),
-    bedrooms: Number(body.bedrooms) || 1,
-    beds: Number(body.beds) || Number(body.bedrooms) || 1,
-    baths: Number(body.baths) || 1,
-    type: String(body.type),
-    category: String(body.category || 'city'),
-    host: req.user.name || 'Host',
-    hostYears: 1,
-    phone: String(body.phone || ''),
-    status: body.status === 'For Rent' ? 'For Rent' : 'For Sale',
-    description: String(body.description || ''),
-    amenities: Array.isArray(body.amenities) ? body.amenities : ['Parking', 'Security', 'Water'],
-    images:
-      Array.isArray(body.images) && body.images.length
-        ? body.images
-        : [
-            'https://www.realestatedatabase.net/PropertyPhotos/589/202609180234322808_NewThumbImage.jpeg',
-          ],
+  const built = buildListing(req.body || {}, {
     hostId: req.user.sub,
+    hostName: req.user.name || 'Host',
     approval: 'pending',
-    createdAt: now,
-    updatedAt: now,
-    lat: 0.3476,
-    lng: 32.5825,
-  }
+  })
+  if (built.error) return res.status(400).json({ error: built.error })
   const db = readDb()
-  db.listings.unshift(listing)
+  db.listings.unshift(built.listing)
   logActivity(db, {
     actor: req.user.email,
     action: 'listing_created',
-    listingId: listing.id,
-    detail: `Host submitted “${listing.title}”`,
+    listingId: built.listing.id,
+    detail: `Host submitted “${built.listing.title}”`,
   })
   writeDb(db)
-  res.status(201).json({ listing })
+  res.status(201).json({ listing: built.listing })
 })
 
 app.put('/api/host/listings/:id', auth('host'), (req, res) => {
@@ -320,6 +370,11 @@ app.put('/api/host/listings/:id', auth('host'), (req, res) => {
     hostId: current.hostId,
     approval: current.approval === 'approved' ? 'pending' : current.approval,
     updatedAt: new Date().toISOString(),
+  }
+  if (body.images) {
+    const images = cleanImages(body.images)
+    if (!images.length) return res.status(400).json({ error: 'Add at least one photo' })
+    updated.images = images
   }
   db.listings[idx] = updated
   logActivity(db, {
@@ -449,6 +504,25 @@ app.get('/api/admin/activity', auth('admin'), (req, res) => {
   res.json({ activity: (db.activity || []).slice(0, limit) })
 })
 
+app.post('/api/admin/listings', auth('admin'), (req, res) => {
+  const built = buildListing(req.body || {}, {
+    hostId: req.user.sub,
+    hostName: 'Jodans Concepts',
+    approval: 'approved',
+  })
+  if (built.error) return res.status(400).json({ error: built.error })
+  const db = readDb()
+  db.listings.unshift(built.listing)
+  logActivity(db, {
+    actor: req.user.email,
+    action: 'listing_created',
+    listingId: built.listing.id,
+    detail: `Admin published “${built.listing.title}”`,
+  })
+  writeDb(db)
+  res.status(201).json({ listing: built.listing })
+})
+
 app.get('/api/admin/listings', auth('admin'), (req, res) => {
   const db = readDb()
   const status = String(req.query.approval || 'all')
@@ -560,6 +634,11 @@ app.put('/api/admin/listings/:id', auth('admin'), (req, res) => {
   if (body.price !== undefined) updated.price = Number(body.price) || 0
   if (body.bedrooms !== undefined) updated.bedrooms = Number(body.bedrooms) || 0
   if (body.baths !== undefined) updated.baths = Number(body.baths) || 0
+  if (body.images) {
+    const images = cleanImages(body.images)
+    if (!images.length) return res.status(400).json({ error: 'Add at least one photo' })
+    updated.images = images
+  }
   db.listings[idx] = updated
   logActivity(db, {
     actor: req.user.email,

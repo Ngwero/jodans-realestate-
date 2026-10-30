@@ -44,6 +44,7 @@ export default function App() {
                 links={[
                   { to: '/admin', label: 'Dashboard' },
                   { to: '/admin/listings', label: 'Listings' },
+                  { to: '/admin/listings/new', label: 'Add listing' },
                   { to: '/admin/hosts', label: 'Hosts' },
                   { to: '/admin/analytics', label: 'Analytics' },
                   { to: '/admin/activity', label: 'Activity' },
@@ -54,6 +55,7 @@ export default function App() {
           >
             <Route index element={<AdminDashboard />} />
             <Route path="listings" element={<AdminListingsPage />} />
+            <Route path="listings/new" element={<HostListingForm audience="admin" />} />
             <Route path="listings/:id" element={<AdminListingDetail />} />
             <Route path="hosts" element={<AdminHostsPage />} />
             <Route path="hosts/:id" element={<AdminHostDetail />} />
