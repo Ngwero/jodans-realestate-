@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { BrandLogo } from '../../components/BrandLogo'
+import { api } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
 
 type Props = {
@@ -9,15 +10,17 @@ type Props = {
 }
 
 export function PortalLayout({ role, links }: Props) {
-  const { user, logout } = useAuth()
+  const { user, logout, loading } = useAuth()
   const location = useLocation()
   const [apiOk, setApiOk] = useState<boolean | null>(null)
 
   useEffect(() => {
-    fetch('/api/health')
+    api.health()
       .then((r) => setApiOk(r.ok))
       .catch(() => setApiOk(false))
   }, [])
+
+  if (loading) return <p role="status">Loading your account…</p>
 
   if (!user) {
     return <Navigate to={role === 'admin' ? '/admin/login' : '/host/login'} replace />

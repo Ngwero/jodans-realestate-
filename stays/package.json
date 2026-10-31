@@ -10,9 +10,12 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "seed:reset": "rm -f server/data/db.json && node server/index.js"
+    "check:supabase": "node server/check-supabase.js",
+    "migrate:supabase": "node server/migrate-supabase.js",
+    "test": "node --test server/tests/*.test.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "concurrently": "^10.0.5",
     "cors": "^2.8.6",
     "express": "^5.2.1",

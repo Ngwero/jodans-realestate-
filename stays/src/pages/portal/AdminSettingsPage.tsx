@@ -7,7 +7,7 @@ export function AdminSettingsPage() {
 
   useEffect(() => {
     api.adminStats().then((s) => setStats(s.totals)).catch(() => setStats(null))
-    fetch('/api/health')
+    api.health()
       .then((r) => (r.ok ? setHealth('online') : setHealth('error')))
       .catch(() => setHealth('offline'))
   }, [])
@@ -17,7 +17,7 @@ export function AdminSettingsPage() {
       <header className="portal-page-head">
         <div>
           <h1>Settings</h1>
-          <p>Platform console info and demo credentials.</p>
+          <p>Platform status and account access.</p>
         </div>
       </header>
 
@@ -49,29 +49,17 @@ export function AdminSettingsPage() {
 
         <section className="portal-panel">
           <div className="portal-panel-head">
-            <h2>Demo access</h2>
+            <h2>Account access</h2>
           </div>
-          <ul className="admin-settings-list">
-            <li>
-              <span>Admin</span>
-              <strong>admin@jodansbloka.com / admin123</strong>
-            </li>
-            <li>
-              <span>Host</span>
-              <strong>host@jodansbloka.com / host123</strong>
-            </li>
-          </ul>
+          <p>Hosts can register in the host portal. Admin access is assigned by the platform owner.</p>
+          <p>Use the password reset link on the sign-in page if you cannot access your account.</p>
         </section>
 
         <section className="portal-panel admin-dash-span">
           <div className="portal-panel-head">
-            <h2>Data store</h2>
+            <h2>Property photos</h2>
           </div>
-          <p className="muted">
-            Listings and users are stored in <code>server/data/db.json</code>. To re-seed from scraped
-            data, stop the API and run:
-          </p>
-          <pre className="admin-code">rm -f server/data/db.json && npm run dev:api</pre>
+          <p className="muted">Uploaded photos are hosted online and stay available across devices. Host submissions require approval before appearing in the marketplace.</p>
         </section>
       </div>
     </div>

@@ -3,7 +3,9 @@ import { BrandLogo } from '../../components/BrandLogo'
 import { useAuth } from '../../lib/auth'
 
 export function BackendHome() {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
+
+  if (loading) return <p role="status">Loading your account…</p>
 
   if (user?.role === 'admin') return <Navigate to="/admin" replace />
   if (user?.role === 'host') return <Navigate to="/host" replace />
@@ -35,11 +37,7 @@ export function BackendHome() {
           </Link>
         </div>
 
-        <p className="backend-gate-demo">
-          Demo · Admin <code>admin@jodansbloka.com</code> / <code>admin123</code>
-          {' · '}
-          Host <code>host@jodansbloka.com</code> / <code>host123</code>
-        </p>
+        <p className="backend-gate-demo">Sign in with your account email. New hosts can register in the host portal.</p>
         <Link to="/" className="backend-gate-back">
           ← Back to marketplace
         </Link>

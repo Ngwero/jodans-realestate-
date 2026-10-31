@@ -1,3 +1,5 @@
+import { supabase } from './supabase'
+
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
 export type SessionUser = {
@@ -99,15 +101,17 @@ export type ListingDto = {
   moderationNote?: string
 }
 
-function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem('jb_token')
-  return token ? { Authorization: `Bearer ${token}` } : {}
+async function authHeaders(): Promise<Record<string, string>> {
+  if (!supabase) return {}
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw error
+  return data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {}
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...authHeaders(),
+    ...await authHeaders(),
   }
   if (options.headers) {
     const extra = new Headers(options.headers)
@@ -146,16 +150,8 @@ function listingsQuery(params: AdminListingsQuery = {}) {
 }
 
 export const api = {
-  login: (email: string, password: string, role?: 'admin' | 'host') =>
-    request<{ token: string; user: SessionUser }>('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password, role }),
-    }),
-  registerHost: (name: string, email: string, password: string) =>
-    request<{ token: string; user: SessionUser }>('/api/auth/register-host', {
-      method: 'POST',
-      body: JSON.stringify({ name, email, password }),
-    }),
+  me: () => request<{ user: SessionUser }>('/api/auth/me'),
+  health: () => request<{ ok: boolean }>('/api/health'),
   publicListings: () =>
     request<{ listings: ListingDto[]; total: number }>('/api/listings'),
   publicListing: (id: string) =>
@@ -247,7 +243,7 @@ export const api = {
     files.forEach((file) => body.append('photos', file))
     const res = await fetch(`${API_BASE}/api/uploads`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: await authHeaders(),
       body,
     })
     const data = await res.json().catch(() => ({}))
