@@ -6,6 +6,7 @@ import { resolvePlace } from './ugandaPlaces.js'
 import { createDatabase } from './database.js'
 import { createAuth } from './auth.js'
 import { PHOTO_TYPES, uploadPhotos } from './photos.js'
+import path from 'node:path'
 
 function logActivity(db, entry) {
   if (!Array.isArray(db.activity)) db.activity = []
@@ -94,7 +95,7 @@ export function listingChanges(body) {
   return Object.fromEntries(fields.filter(key => Object.hasOwn(body, key)).map(key => [key, body[key]]))
 }
 
-export function createApp(supabase) {
+export function createApp(supabase, { webDirectory } = {}) {
   const { readDb, writeDb } = createDatabase(supabase)
   const auth = createAuth(supabase)
   const upload = multer({
@@ -579,6 +580,19 @@ export function createApp(supabase) {
       },
     })
   })
+
+  // Unknown API routes must stay JSON 404s instead of returning the SPA shell.
+  app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }))
+
+  if (webDirectory) {
+    const directory = path.resolve(webDirectory)
+    app.use(express.static(directory, { index: false }))
+    app.get(/.*/, (req, res, next) => {
+      if (path.extname(req.path) || req.path.split('/').some(part => part.startsWith('.')) || !req.accepts('html')) return next()
+      res.set('Cache-Control', 'no-cache')
+      res.sendFile(path.join(directory, 'index.html'))
+    })
+  }
 
   app.use((error, _req, res, _next) => {
     if (error.code === '40001') return res.status(409).json({ error: 'This record changed. Reload and try again.' })

@@ -65,6 +65,20 @@ privileged key; all `VITE_` values are public in the frontend build.
 
 ## Run and deploy
 
+### Railway: website and API in one service
+
+Set the service Root Directory to `stays`, Build Command to `npm run build`,
+and Start Command to `npm start`. The production server listens on Railway's
+`PORT` and serves both `dist/` and `/api`, including SPA navigation fallbacks.
+Use `/api/health` as the deployment healthcheck.
+
+Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as server variables. Set
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` before building. Set `WEB_ORIGIN`
+to `https://jodansconcepts.com`. Leave `VITE_API_URL`, `VITE_PLATFORM_URL`, and
+`VITE_HOMES_URL` unset for links and API requests on the current domain.
+Never use a localhost URL in production variables or expose the service-role key
+through a `VITE_` variable. The Supabase migration must be installed before startup.
+
 ```bash
 cd stays
 npm install
