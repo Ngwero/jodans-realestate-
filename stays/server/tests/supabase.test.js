@@ -329,3 +329,14 @@ integration('failed delivery releases its lease and retries without exposing mes
   assert.equal(query(`select attempts from public.app_mail_outbox where id=${literal(id)} and sent_at is not null;`),'2')
   assert(delivered.some(message=>message.to==='retry@example.test'))
 })
+
+
+integration('an existing migrated profile without custom credentials can recover access',async()=>{
+  query("insert into public.app_profiles(id,email,name) values('profile-without-password','existing@example.test','Existing User');")
+  assert.equal((await request('/api/auth/forgot-password',null,'POST',{email:'existing@example.test'})).status,202)
+  await application.locals.mailWorker.drain()
+  const mail=delivered.filter(message=>message.to==='existing@example.test' && message.kind==='reset').at(-1)
+  const token=new URLSearchParams(new URL(mail.url).hash.slice(1)).get('token')
+  assert.equal((await request('/api/auth/reset-password',null,'POST',{token,password:'recovered-password-123'})).status,200)
+  assert.equal((await request('/api/auth/login',null,'POST',{email:'existing@example.test',password:'recovered-password-123'})).status,200)
+})

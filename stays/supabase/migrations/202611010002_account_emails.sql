@@ -101,8 +101,9 @@ begin
   if not found or token.expires_at<=now() or not account.active then return false; end if;
   if p_kind='reset' then
     if p_password is null then return false; end if;
-    update public.app_credentials set password_hash=p_password,session_version=session_version+1 where profile_id=owner_id;
-    if not found then return false; end if;
+    insert into public.app_credentials(profile_id,password_hash,session_version) values(owner_id,p_password,1)
+    on conflict(profile_id) do update set password_hash=excluded.password_hash,
+      session_version=app_credentials.session_version+1;
     delete from public.app_auth_tokens where profile_id=owner_id;
     if p_payload is not null then insert into public.app_mail_outbox(payload) values(p_payload); end if;
   elsif p_kind='verify' then
