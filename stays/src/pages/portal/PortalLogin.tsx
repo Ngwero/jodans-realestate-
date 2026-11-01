@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../../components/BrandLogo'
-import { browserSupabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
 
 type Props = {
@@ -13,13 +12,12 @@ type Props = {
 }
 
 export function PortalLogin({ role, title, subtitle, redirectTo, allowRegister }: Props) {
-  const { user, login, registerHost, loading: authLoading, authError } = useAuth()
+  const { user, login, registerHost, loading: authLoading } = useAuth()
   const navigate = useNavigate()
-  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login')
+  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -32,23 +30,10 @@ export function PortalLogin({ role, title, subtitle, redirectTo, allowRegister }
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
-    setMessage('')
     setLoading(true)
     try {
-      if (mode === 'forgot') {
-        const { error } = await browserSupabase().auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/reset-password`,
-        })
-        if (error) throw error
-        setMessage('If an account exists, you will receive a password reset email.')
-        return
-      }
       if (mode === 'register' && allowRegister) {
-        const profile = await registerHost(name, email, password)
-        if (!profile) {
-          setMessage('Check your email to confirm your account, then sign in.')
-          return
-        }
+        await registerHost(name, email, password)
       } else {
         await login(email, password, role)
       }
@@ -105,7 +90,7 @@ export function PortalLogin({ role, title, subtitle, redirectTo, allowRegister }
               required
             />
           </label>
-          {mode !== 'forgot' && <label>
+          <label>
             Password
             <input
               type="password"
@@ -116,19 +101,12 @@ export function PortalLogin({ role, title, subtitle, redirectTo, allowRegister }
               required
             />
           </label>
-          }
-          {message && <p role="status">{message}</p>}
-          {(error || authError) && <p className="portal-error">{error || authError}</p>}
+          {error && <p className="portal-error">{error}</p>}
           <button className="btn btn-primary" type="submit" disabled={loading}>
-            {loading ? 'Please wait…' : mode === 'forgot' ? 'Send reset email' : mode === 'register' ? 'Create account' : 'Sign in'}
+            {loading ? 'Please wait…' : mode === 'register' ? 'Create account' : 'Sign in'}
           </button>
         </form>
 
-        <button type="button" className="btn btn-ghost" onClick={() => {
-          setMode(mode === 'forgot' ? 'login' : 'forgot'); setError(''); setMessage('')
-        }}>
-          {mode === 'forgot' ? 'Back to sign in' : 'Forgot password?'}
-        </button>
         <Link to="/" className="portal-back">
           ← Back to marketplace
         </Link>

@@ -52,7 +52,7 @@ export function AdminSettingsPage() {
             <h2>Account access</h2>
           </div>
           <p>Hosts can register in the host portal. Admin access is assigned by the platform owner.</p>
-          <p>Use the password reset link on the sign-in page if you cannot access your account.</p>
+          <p>Contact the platform owner if you cannot access your account.</p>
         </section>
 
         <section className="portal-panel admin-dash-span">

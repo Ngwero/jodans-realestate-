@@ -4,7 +4,7 @@ import multer from 'multer'
 import { v4 as uuid } from 'uuid'
 import { resolvePlace } from './ugandaPlaces.js'
 import { createDatabase } from './database.js'
-import { createAuth } from './auth.js'
+import { createAuth, signToken, verifyPassword, hashPassword, signingSecret } from './auth.js'
 import { PHOTO_TYPES, uploadPhotos } from './photos.js'
 import path from 'node:path'
 
@@ -97,7 +97,8 @@ export function listingChanges(body) {
 
 export function createApp(supabase, { webDirectory } = {}) {
   const { readDb, writeDb } = createDatabase(supabase)
-  const auth = createAuth(supabase)
+  const secret = signingSecret()
+  const auth = createAuth(supabase, secret)
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 8 * 1024 * 1024, files: 8 },
@@ -114,6 +115,40 @@ export function createApp(supabase, { webDirectory } = {}) {
     const { error } = await supabase.from('app_listings').select('id').limit(1)
     if (error) return next(error)
     res.json({ ok: true, service: 'jodans-bloka-api', database: 'supabase' })
+  })
+
+  const sessionResponse = user => ({ token: signToken(user, secret),
+    user: { id: user.id, email: user.email, name: user.name, role: user.role } })
+
+  app.post('/api/auth/login', async (req, res) => {
+    const { email, password, role } = req.body || {}
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password || password.length > 1024) {
+      return res.status(400).json({ error: 'Email and password required' })
+    }
+    const db = await readDb()
+    const user = db.users.find(row => row.email.toLowerCase() === email.trim().toLowerCase())
+    if (!user || !await verifyPassword(password, user.password) || (role && user.role !== role && user.role !== 'admin')) {
+      return res.status(401).json({ error: 'Invalid email or password' })
+    }
+    if (!user.active) return res.status(403).json({ error: 'Account disabled' })
+    res.json(sessionResponse(user))
+  })
+
+  app.post('/api/auth/register-host', async (req, res) => {
+    const { email, password, name } = req.body || {}
+    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
+        typeof name !== 'string' || !name.trim() || typeof password !== 'string' || password.length < 8 || password.length > 1024) {
+      return res.status(400).json({ error: 'Name, valid email, and a password of at least 8 characters required' })
+    }
+    const db = await readDb()
+    const normalized = email.trim().toLowerCase()
+    if (db.users.some(row => row.email.toLowerCase() === normalized)) return res.status(409).json({ error: 'Email already registered' })
+    const user = { id: uuid(), email: normalized, name: name.trim(), role: 'host',
+      password: await hashPassword(password), active: true, createdAt: new Date().toISOString() }
+    db.users.push(user)
+    logActivity(db, { actor: user.email, action: 'host_registered', detail: `${user.name} joined as host` })
+    await writeDb(db)
+    res.status(201).json(sessionResponse(user))
   })
 
   app.get('/api/auth/me', auth(), (req, res) => {
@@ -595,6 +630,7 @@ export function createApp(supabase, { webDirectory } = {}) {
   }
 
   app.use((error, _req, res, _next) => {
+    if (error.code === '23505') return res.status(409).json({ error: 'An account or record already exists.' })
     if (error.code === '40001') return res.status(409).json({ error: 'This record changed. Reload and try again.' })
     if (error.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' })
     if (error.type === 'entity.too.large') return res.status(413).json({ error: 'Request is too large' })

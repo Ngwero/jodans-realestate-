@@ -9,11 +9,14 @@ import { createApp } from '../app.js'
 import { createDatabase } from '../database.js'
 import { uploadPhotos } from '../photos.js'
 import { migrate } from '../migrate-supabase.js'
+import { signToken, hashPassword, verifyPassword, signingSecret } from '../auth.js'
+import crypto from 'node:crypto'
 
 let available = true
 try { execFileSync('initdb', ['--version'], { stdio: 'ignore' }) } catch { available = false }
 const integration = (name, fn) => test(name, { skip: !available && 'Install PostgreSQL binaries to run integration tests' }, fn)
 let directory, server, base, supabase
+const tokens = {}
 const adminId = '00000000-0000-4000-8000-000000000001'
 const hostId = '00000000-0000-4000-8000-000000000002'
 const otherId = '00000000-0000-4000-8000-000000000003'
@@ -41,12 +44,17 @@ before(async () => {
     ('${hostId}','host@example.test','{"name":"Host","role":"admin"}'),
     ('${otherId}','other@example.test','{"name":"Other"}');
     update public.app_profiles set role='admin' where id='${adminId}';`)
-  const tokens = { admin: adminId, host: hostId, other: otherId }
+  const upgrade = readFileSync(new URL('../../supabase/migrations/202611010001_keep_existing_login.sql', import.meta.url), 'utf8')
+  query(upgrade)
+  query(upgrade)
+  const legacyHash = crypto.createHash('sha256').update(`${process.env.LEGACY_JB_SECRET || signingSecret()}:original-password`).digest('hex')
+  query(`insert into public.app_credentials(profile_id,password_hash) values
+    ('${hostId}',${literal(legacyHash)}), ('${adminId}',${literal(await hashPassword('admin-password-123'))});`)
+  for (const [name,id] of Object.entries({ admin:adminId, host:hostId, other:otherId })) tokens[name] = signToken({ id })
   supabase = {
-    auth: { async getUser(token) { return { data: { user: tokens[token] ? { id: tokens[token], email: `${token}@example.test` } : null }, error: tokens[token] ? null : new Error('invalid') } } },
     from(table) {
       return { select() { return {
-        limit() { try { return Promise.resolve({ data: jsonQuery(`set role service_role; select coalesce(jsonb_agg(id),'[]') from public.${table};`) }) } catch(error) { return Promise.resolve(failure(error)) } },
+        limit() { try { return Promise.resolve({ data: jsonQuery(`set role service_role; select coalesce(jsonb_agg(${table === 'app_credentials' ? 'profile_id' : 'id'}),'[]') from public.${table};`) }) } catch(error) { return Promise.resolve(failure(error)) } },
         eq(_column, id) { return { async single() {
           try { return { data: jsonQuery(`set role service_role; select row_to_json(p) from public.app_profiles p where id=${literal(id)};`) } } catch(error) { return failure(error) }
         } } },
@@ -73,13 +81,16 @@ after(async () => {
 })
 
 async function request(url, token, method = 'GET', body) {
-  return fetch(base + url, { method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
+  return fetch(base + url, { method, headers: { ...(token ? { Authorization: `Bearer ${tokens[token] || token}` } : {}), 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
 }
 const listingBody = { title: 'Kampala home', location: 'Kampala', region: 'Central', type: 'House', price: 150000, images: ['https://example.test/photo.jpg'] }
 let listingId
 
-integration('signup metadata cannot create admins; browser roles cannot read private tables or RPCs', () => {
+integration('upgrade preserves existing profiles and removes the Supabase Auth dependency; private tables remain protected', () => {
   assert.equal(query(`select role from public.app_profiles where id='${hostId}';`), 'host')
+  query("insert into auth.users(id,email) values('00000000-0000-4000-8000-000000000099','unlinked@example.test');")
+  assert.equal(query("select count(*) from public.app_profiles where email='unlinked@example.test';"), '0')
+  assert.throws(() => query('set role anon; select * from public.app_credentials;'))
   assert.throws(() => query('set role anon; select * from public.app_profiles;'))
   assert.throws(() => query('set role authenticated; select public.app_read_state();'))
   assert.throws(() => query("set role authenticated; select public.app_apply_changes('{}');"))
@@ -161,41 +172,33 @@ test('photo batches clean up uploaded objects when a later upload fails', async 
 })
 
 
-integration('import maps owners and photos, preserves local files, and can rerun without replacing cloud edits', async () => {
+integration('import preserves original login IDs, passwords and files; reruns preserve cloud edits', async () => {
   const importRoot = mkdtempSync(path.join(tmpdir(), 'jb-import-'))
   mkdirSync(path.join(importRoot, 'server/data'), { recursive: true })
   mkdirSync(path.join(importRoot, 'public/uploads'), { recursive: true })
+  const hash = crypto.createHash('sha256').update(`${process.env.LEGACY_JB_SECRET || signingSecret()}:retained-password`).digest('hex')
   const legacy = {
-    users: [{ id: 'admin-1', email: 'old-admin@example.test' }, { id: 'host-demo', email: 'demo@example.test' },
-      { id: 'local-host', email: 'migrated-host@example.test', name: 'Imported Host', password: 'legacy-hash' }],
-    listings: [{ ...listingBody, id: 'imported-listing', hostId: 'local-host', images: ['/uploads/photo.png'] }],
-    activity: [],
+    users: [{ id: 'admin-1', email: 'old-admin@example.test', name:'Original Admin', role:'admin', password:hash },
+      { id: 'local-host', email: 'migrated-host@example.test', name: 'Imported Host', role:'host', password:hash }],
+    listings: [{ ...listingBody, id: 'imported-listing', hostId: 'local-host', images: ['/uploads/photo.png'] }], activity: [],
   }
   const original = JSON.stringify(legacy)
   writeFileSync(path.join(importRoot, 'server/data/db.json'), original)
   writeFileSync(path.join(importRoot, 'public/uploads/photo.png'), Buffer.from('fake image for upload mock'))
-  const created = [], objects = new Set()
+  const objects = new Set()
   const client = {
     ...supabase,
-    auth: { admin: {
-      async listUsers() { return { data: { users: jsonQuery("select coalesce(jsonb_agg(jsonb_build_object('id',id,'email',email)), '[]') from auth.users;") } } },
-      async createUser(body) {
-        const id = `00000000-0000-4000-8000-${String(100 + created.length).padStart(12,'0')}`
-        created.push(body)
-        query(`insert into auth.users(id,email,raw_user_meta_data) values(${literal(id)},${literal(body.email)},${literal(JSON.stringify(body.user_metadata))});`)
-        return { data: { user: { id, email: body.email } } }
-      },
-    } },
     from(table) {
       return {
         ...supabase.from(table),
-        update(values) { return { async eq(_key,id) {
-          query(`set role service_role; update public.${table} set ${Object.entries(values).map(([key,value]) => `${key}=${literal(value)}`).join(',')} where id=${literal(id)};`)
-          return {}
-        } } },
         async upsert(rows) {
-          const columns = table === 'app_listings' ? 'id text, host_id uuid, data jsonb' : 'id uuid, data jsonb'
-          query(`set role service_role; insert into public.${table} select * from jsonb_to_recordset(${literal(JSON.stringify(rows))}::jsonb) as r(${columns}) on conflict(id) do nothing;`)
+          const definitions = {
+            app_profiles:'id text,email text,name text,role text,active boolean,created_at timestamptz',
+            app_credentials:'profile_id text,password_hash text',
+            app_listings:'id text,host_id text,data jsonb', app_activity:'id uuid,data jsonb',
+          }
+          const columns = definitions[table].split(',').map(item => item.split(' ')[0]).join(',')
+          query(`set role service_role; insert into public.${table}(${columns}) select * from jsonb_to_recordset(${literal(JSON.stringify(rows))}::jsonb) as r(${definitions[table]}) on conflict do nothing;`)
           return {}
         },
       }
@@ -208,26 +211,26 @@ integration('import maps owners and photos, preserves local files, and can rerun
       } },
     },
   }
-  const options = { root: importRoot, supabase: client, settings: {
-    BOOTSTRAP_ADMIN_EMAIL: 'bootstrap@example.test', BOOTSTRAP_ADMIN_PASSWORD: 'fresh-password-123',
-  } }
+  const options = { root: importRoot, supabase: client, settings: {} }
   try {
     await migrate(options)
-    assert.equal(created.length, 2)
-    assert.equal(created[0].email_confirm, true)
-    assert.equal(created[1].email_confirm, false)
-    assert.notEqual(created[1].password, 'legacy-hash')
-    assert.equal(query("select role from public.app_profiles where email='bootstrap@example.test';"), 'admin')
+    assert.equal(query("select id from public.app_profiles where email='old-admin@example.test';"), 'admin-1')
+    assert.equal(query("select password_hash from public.app_credentials where profile_id='local-host';"), hash)
     const imported = jsonQuery("select data from public.app_listings where id='imported-listing';")
-    assert.equal(imported.hostId, query("select id from public.app_profiles where email='migrated-host@example.test';"))
+    assert.equal(imported.hostId, 'local-host')
     assert.deepEqual(imported.images, ['https://storage.example/legacy/photo.png'])
+    const login = await request('/api/auth/login', null, 'POST', { email:'migrated-host@example.test', password:'retained-password',role:'host' })
+    assert.equal(login.status, 200)
+    const session = await login.json()
+    assert.equal(session.user.id,'local-host')
+    assert.equal(session.user.password,undefined)
+    assert.equal((await request('/api/host/listings',session.token)).status,200)
     query("update public.app_listings set data=jsonb_set(data,'{title}','\"Cloud edit\"') where id='imported-listing';")
     await migrate(options)
-    assert.equal(created.length, 2)
-    assert.equal(objects.size, 1)
-    assert.equal(query("select data->>'title' from public.app_listings where id='imported-listing';"), 'Cloud edit')
-    assert.equal(readFileSync(path.join(importRoot, 'server/data/db.json'),'utf8'), original)
-  } finally { rmSync(importRoot, { recursive: true, force: true }) }
+    assert.equal(objects.size,1)
+    assert.equal(query("select data->>'title' from public.app_listings where id='imported-listing';"),'Cloud edit')
+    assert.equal(readFileSync(path.join(importRoot,'server/data/db.json'),'utf8'),original)
+  } finally { rmSync(importRoot,{recursive:true,force:true}) }
 })
 
 integration('snapshot reads include more than 1,000 listings without Data API pagination loss', async () => {
@@ -236,4 +239,23 @@ integration('snapshot reads include more than 1,000 listings without Data API pa
     from generate_series(1,1005) n;`)
   const { data } = await supabase.rpc('app_read_state')
   assert.equal(data.listings.filter(row => row.id.startsWith('page-test-')).length, 1005)
+})
+
+
+integration('existing passwords sign in; registration cannot grant admin and stores a private hash', async () => {
+  const login = await request('/api/auth/login', null, 'POST', {email:'host@example.test',password:'original-password',role:'host'})
+  assert.equal(login.status,200)
+  assert.equal((await request('/api/auth/login',null,'POST',{email:'host@example.test',password:'wrong'})).status,401)
+  const response = await request('/api/auth/register-host',null,'POST',{
+    name:'New Host',email:'NEW@example.test',password:'new-password-123',role:'admin',active:false,
+  })
+  assert.equal(response.status,201)
+  const {user,token} = await response.json()
+  assert.equal(user.role,'host')
+  assert.equal(user.password,undefined)
+  assert.equal((await request('/api/admin/stats',token)).status,403)
+  const stored = query(`select password_hash from public.app_credentials where profile_id=${literal(user.id)};`)
+  assert(stored.startsWith('scrypt:'))
+  assert(await verifyPassword('new-password-123',stored))
+  assert.equal((await request('/api/auth/register-host',null,'POST',{name:'Duplicate',email:'new@example.test',password:'new-password-123'})).status,409)
 })

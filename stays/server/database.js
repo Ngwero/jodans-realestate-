@@ -24,9 +24,17 @@ export function createDatabase(supabase) {
           .map(row => ({ id: row.id, expected: row })),
         profiles: db.users.filter(row => {
           const old = oldUsers.get(row.id)
-          return old && (row.name !== old.name || row.active !== old.active)
-        }).map(row => ({ id: row.id, name: row.name, active: row.active,
-          expectedName: oldUsers.get(row.id).name, expectedActive: oldUsers.get(row.id).active })),
+          return !old || row.name !== old.name || row.active !== old.active
+        }).map(row => {
+          const old = oldUsers.get(row.id)
+          return old ? { id: row.id, name: row.name, active: row.active,
+            expectedName: old.name, expectedActive: old.active } : {
+            id: row.id, email: row.email, name: row.name, role: row.role,
+            active: row.active, createdAt: row.createdAt, insert: true,
+          }
+        }),
+        credentials: db.users.filter(row => row.password && row.password !== oldUsers.get(row.id)?.password)
+          .map(row => ({ id: row.id, password: row.password, expected: oldUsers.get(row.id)?.password ?? null })),
         activity: db.activity.filter(row => !oldActivity.has(row.id)),
         deletedActivity: before.activity.filter(row => !newActivity.has(row.id)).map(row => row.id),
       }

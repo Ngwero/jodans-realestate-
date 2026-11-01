@@ -14,7 +14,6 @@ import { AdminActivityPage } from './pages/portal/AdminActivityPage'
 import { AdminSettingsPage } from './pages/portal/AdminSettingsPage'
 import { HostDashboard } from './pages/portal/HostDashboard'
 import { HostListingForm } from './pages/portal/HostListingForm'
-import { PasswordReset } from './pages/portal/PasswordReset'
 import { AuthProvider } from './lib/auth'
 
 export default function App() {
@@ -24,7 +23,6 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/stay/:id" element={<StayPage />} />
-          <Route path="/reset-password" element={<PasswordReset />} />
           <Route path="/backend" element={<BackendHome />} />
 
           <Route
