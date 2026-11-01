@@ -4,18 +4,19 @@ import { formatPrice, isForSale, type Listing } from '../data/listings'
 
 type Props = {
   listing: Listing
+  dense?: boolean
 }
 
-export function ListingCard({ listing }: Props) {
+export function ListingCard({ listing, dense = false }: Props) {
   const [saved, setSaved] = useState(false)
   const sale = isForSale(listing)
   const rent = (listing.status || '').toLowerCase().includes('rent')
 
   return (
-    <Link to={`/stay/${listing.id}`} className="listing-card">
+    <Link to={`/stay/${listing.id}`} className={`listing-card${dense ? ' dense' : ''}`}>
       <div className="listing-media">
         <img src={listing.images[0]} alt={listing.title} loading="lazy" />
-        <span className={`listing-badge${rent ? ' rent' : ''}`}>
+        <span className={`listing-badge${rent ? ' rent' : ''}${dense ? ' light' : ''}`}>
           {sale ? 'For sale' : rent ? 'For rent' : listing.status || 'Listing'}
         </span>
         <button
@@ -32,20 +33,31 @@ export function ListingCard({ listing }: Props) {
         </button>
       </div>
       <div className="listing-body">
-        <div className="listing-top">
-          <span className="listing-place">{listing.region}</span>
-          <span className="rating">★ {listing.rating.toFixed(2)}</span>
-        </div>
-        <div className="listing-loc">{listing.title}</div>
-        <div className="listing-meta">
-          {listing.type} · {listing.bedrooms} bed
-          {listing.bedrooms === 1 ? '' : 's'}
-          {listing.baths ? ` · ${listing.baths} bath` : ''}
-        </div>
-        <div className="listing-price">
-          <strong>{formatPrice(listing)}</strong>{' '}
-          <span>{sale ? 'asking' : 'rent'}</span>
-        </div>
+        {dense ? (
+          <>
+            <div className="listing-loc">{listing.title}</div>
+            <div className="listing-price dense-price">
+              <strong>{formatPrice(listing)}</strong>
+              <span className="rating">★ {listing.rating.toFixed(2)}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="listing-top">
+              <span className="listing-place">{listing.region}</span>
+              <span className="rating">★ {listing.rating.toFixed(2)}</span>
+            </div>
+            <div className="listing-loc">{listing.title}</div>
+            <div className="listing-meta">
+              {listing.type} · {listing.bedrooms} bed
+              {listing.bedrooms === 1 ? '' : 's'}
+              {listing.baths ? ` · ${listing.baths} bath` : ''}
+            </div>
+            <div className="listing-price">
+              <strong>{formatPrice(listing)}</strong> <span>{sale ? 'asking' : 'rent'}</span>
+            </div>
+          </>
+        )}
       </div>
     </Link>
   )

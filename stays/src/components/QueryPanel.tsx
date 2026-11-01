@@ -96,7 +96,6 @@ export function QueryPanel({ value, onChange, resultCount, priceCeiling }: Props
 
   return (
     <section className="query" aria-label="Search homes">
-      <div className="query-card">
       <form className="query-bar" onSubmit={(e) => e.preventDefault()} role="search">
         <label className="query-search">
           <span className="query-ico" aria-hidden>
@@ -193,6 +192,7 @@ export function QueryPanel({ value, onChange, resultCount, priceCeiling }: Props
         </label>
       </form>
 
+      <div className="query-card">
       <div className="query-suggest" aria-label="Popular areas">
         <span className="query-suggest-label">Popular</span>
         {PLACE_SUGGESTIONS.map((place) => (

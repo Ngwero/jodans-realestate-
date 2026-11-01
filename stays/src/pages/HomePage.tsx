@@ -1,12 +1,61 @@
-import { useEffect, useMemo, useState } from 'react'
-import { categories, listings as staticListings, ugandaImages, type Listing } from '../data/listings'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { listings as staticListings, type Listing } from '../data/listings'
 import { Footer } from '../components/Footer'
 import { ListingCard } from '../components/ListingCard'
 import { Navbar } from '../components/Navbar'
-import { QueryPanel, type QueryState } from '../components/QueryPanel'
+import type { QueryState } from '../components/QueryPanel'
 import { api } from '../lib/api'
 
-const PAGE_SIZE = 24
+const STRIP = [
+  { id: 'all', label: 'All' },
+  { id: 'sale', label: 'For sale' },
+  { id: 'rent', label: 'For rent' },
+  { id: 'mansion', label: 'Mansions' },
+  { id: 'apartment', label: 'Apartments' },
+  { id: 'bungalow', label: 'Bungalows' },
+  { id: 'land', label: 'Land' },
+] as const
+
+function PlaceRow({
+  title,
+  subtitle,
+  listings,
+}: {
+  title: string
+  subtitle: string
+  listings: Listing[]
+}) {
+  const scroller = useRef<HTMLDivElement>(null)
+  const move = (dir: number) => {
+    const el = scroller.current
+    if (!el) return
+    el.scrollBy({ left: dir * Math.max(el.clientWidth * 0.75, 280), behavior: 'smooth' })
+  }
+
+  return (
+    <section className="stay-row">
+      <div className="stay-row-head">
+        <div>
+          <h2>{title}</h2>
+          <p>{subtitle}</p>
+        </div>
+        <div className="stay-arrows">
+          <button type="button" aria-label={`Previous ${title}`} onClick={() => move(-1)}>
+            ‹
+          </button>
+          <button type="button" aria-label={`Next ${title}`} onClick={() => move(1)}>
+            ›
+          </button>
+        </div>
+      </div>
+      <div className="stay-rail" ref={scroller}>
+        {listings.slice(0, 14).map((listing) => (
+          <ListingCard key={listing.id} listing={listing} dense />
+        ))}
+      </div>
+    </section>
+  )
+}
 
 function matchesCategory(listing: Listing, category: string) {
   if (category === 'all') return true
@@ -57,7 +106,6 @@ export function HomePage() {
   }, [listings])
 
   const [category, setCategory] = useState('all')
-  const [visible, setVisible] = useState(PAGE_SIZE)
   const [query, setQuery] = useState<QueryState>({
     q: '',
     status: 'all',
@@ -128,106 +176,206 @@ export function HomePage() {
     return rows
   }, [listings, category, effectiveQuery])
 
-  const shown = filtered.slice(0, visible)
+  const shown = filtered
 
-  const updateQuery = (next: QueryState) => {
-    setQuery(next)
-    setVisible(PAGE_SIZE)
+  const placeRows = useMemo(() => {
+    const map = new Map<string, Listing[]>()
+    for (const listing of shown) {
+      const name = (listing.region || listing.district || 'Uganda').trim()
+      const bucket = map.get(name) || []
+      bucket.push(listing)
+      map.set(name, bucket)
+    }
+    return [...map.entries()]
+      .map(([name, items]) => ({
+        name,
+        items,
+        subtitle: `${items.length} homes`,
+      }))
+      .filter((row) => row.items.length >= 3)
+      .sort((a, b) => b.items.length - a.items.length)
+      .slice(0, 6)
+  }, [shown])
+
+  const set = <K extends keyof QueryState>(key: K, val: QueryState[K]) => {
+    setQuery((q) => ({ ...q, [key]: val }))
   }
 
   return (
-    <div className="page page-direct">
+    <div className="page page-stay">
       <Navbar />
 
-      <main className="browse">
-        <section className="hero" aria-label="Find a home">
-          <img className="hero-photo" src={ugandaImages.kampalaSunset} alt="" />
-          <div className="hero-shade" aria-hidden="true" />
-          <div className="hero-copy">
-            <p className="hero-kicker">Jodans Concepts</p>
-            <h1>Find a home in Uganda</h1>
-            <p>Sale and rent across Kampala, Wakiso, and Entebbe.</p>
-            <ul className="hero-stats">
-              <li>Kampala</li>
-              <li>Wakiso</li>
-              <li>Entebbe</li>
-            </ul>
-          </div>
-        </section>
+      <div className="stay-top">
+        <form className="stay-pill" role="search" onSubmit={(e) => e.preventDefault()}>
+          <label>
+            <span>Where</span>
+            <input
+              type="search"
+              placeholder="Search areas"
+              value={query.q}
+              onChange={(e) => set('q', e.target.value)}
+              aria-label="Search by area"
+            />
+          </label>
+          <label>
+            <span>Buy or rent</span>
+            <select
+              value={query.status}
+              onChange={(e) => set('status', e.target.value as QueryState['status'])}
+              aria-label="Buy or rent"
+            >
+              <option value="all">All homes</option>
+              <option value="sale">Buy</option>
+              <option value="rent">Rent</option>
+            </select>
+          </label>
+          <label>
+            <span>Bedrooms</span>
+            <select
+              value={query.beds}
+              onChange={(e) => set('beds', Number(e.target.value))}
+              aria-label="Bedrooms"
+            >
+              <option value={0}>Any</option>
+              <option value={1}>1+</option>
+              <option value={2}>2+</option>
+              <option value={3}>3+</option>
+              <option value={4}>4+</option>
+              <option value={5}>5+</option>
+            </select>
+          </label>
+          <button type="submit" className="stay-go" aria-label="Search">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
+              <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" strokeWidth="2" />
+              <path d="M16 16l5 5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </form>
 
-        <div className="hero-dock">
-          <QueryPanel
-            value={effectiveQuery}
-            onChange={updateQuery}
-            resultCount={filtered.length}
-            priceCeiling={priceCeiling}
-          />
-        </div>
-
-        <div className="categories sticky-cats" role="tablist" aria-label="Categories">
-          {categories.map((c) => (
+        <div className="stay-cats" role="tablist" aria-label="Property types">
+          {STRIP.map((item) => (
             <button
-              key={c.id}
+              key={item.id}
               type="button"
               role="tab"
-              aria-selected={category === c.id}
-              className={`chip${category === c.id ? ' active' : ''}`}
-              onClick={() => {
-                setCategory(c.id)
-                setVisible(PAGE_SIZE)
-              }}
+              aria-selected={category === item.id}
+              className={category === item.id ? 'on' : ''}
+              onClick={() => setCategory(item.id)}
             >
-              {c.label}
+              <CatIcon id={item.id} />
+              {item.label}
             </button>
           ))}
         </div>
+      </div>
 
-        <section id="stays" className="browse-grid" aria-live="polite">
-          {shown.length === 0 ? (
-            <div className="empty empty-rich">
-              <strong>No homes match</strong>
-              <p>Try another location, raise the budget, or clear filters.</p>
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() =>
-                  updateQuery({
-                    q: '',
-                    status: 'all',
-                    beds: 0,
-                    maxPrice: priceCeiling,
-                    currency: 'any',
-                    sort: 'featured',
-                  })
-                }
-              >
-                Reset filters
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="listing-grid">
-                {shown.map((listing) => (
-                  <ListingCard key={listing.id} listing={listing} />
-                ))}
-              </div>
-              {visible < filtered.length && (
-                <div className="load-more">
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => setVisible((v) => v + PAGE_SIZE)}
-                  >
-                    Show more · {filtered.length - visible} remaining
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </section>
+      <main className="stay-main">
+        {placeRows.length === 0 ? (
+          <div className="empty empty-rich">
+            <strong>No homes match</strong>
+            <p>Try another area or clear the filters.</p>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => {
+                setCategory('all')
+                setQuery({
+                  q: '',
+                  status: 'all',
+                  beds: 0,
+                  maxPrice: priceCeiling,
+                  currency: 'any',
+                  sort: 'featured',
+                })
+              }}
+            >
+              Reset filters
+            </button>
+          </div>
+        ) : (
+          placeRows.map((row) => (
+            <PlaceRow
+              key={row.name}
+              title={`Homes in ${row.name}`}
+              subtitle={row.subtitle}
+              listings={row.items}
+            />
+          ))
+        )}
       </main>
 
       <Footer />
     </div>
+  )
+}
+
+function CatIcon({ id }: { id: string }) {
+  const common = {
+    viewBox: '0 0 32 32',
+    width: 28,
+    height: 28,
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.6,
+    strokeLinejoin: 'round' as const,
+    strokeLinecap: 'round' as const,
+    'aria-hidden': true,
+  }
+  if (id === 'sale') {
+    return (
+      <svg {...common}>
+        <path d="M6 14l10-8 10 8v12H6z" />
+        <path d="M13 26v-7h6v7" />
+      </svg>
+    )
+  }
+  if (id === 'rent') {
+    return (
+      <svg {...common}>
+        <path d="M8 26V12l8-6 8 6v14" />
+        <path d="M14 26v-6h4v6" />
+      </svg>
+    )
+  }
+  if (id === 'mansion') {
+    return (
+      <svg {...common}>
+        <path d="M4 26V14l6-4 6 4 6-4 6 4v12" />
+        <path d="M14 26v-6h4v6" />
+      </svg>
+    )
+  }
+  if (id === 'apartment') {
+    return (
+      <svg {...common}>
+        <rect x="8" y="6" width="16" height="20" rx="1" />
+        <path d="M12 11h2M18 11h2M12 16h2M18 16h2M14 26v-4h4v4" />
+      </svg>
+    )
+  }
+  if (id === 'bungalow') {
+    return (
+      <svg {...common}>
+        <path d="M5 16l11-8 11 8" />
+        <path d="M8 15v11h16V15" />
+      </svg>
+    )
+  }
+  if (id === 'land') {
+    return (
+      <svg {...common}>
+        <path d="M4 22c4-6 6-6 8 0s4 6 8 0 4-6 8 0" />
+        <path d="M16 8v6" />
+        <circle cx="16" cy="7" r="1.2" fill="currentColor" stroke="none" />
+      </svg>
+    )
+  }
+  return (
+    <svg {...common}>
+      <rect x="6" y="6" width="8" height="8" rx="1.5" />
+      <rect x="18" y="6" width="8" height="8" rx="1.5" />
+      <rect x="6" y="18" width="8" height="8" rx="1.5" />
+      <rect x="18" y="18" width="8" height="8" rx="1.5" />
+    </svg>
   )
 }
