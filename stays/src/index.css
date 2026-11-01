@@ -2910,3 +2910,8 @@ img {
     margin: 0.65rem auto;
   }
 }
+
+.account-notice { padding: 14px 16px; border-radius: 8px; background: #eaf4ed; color: #204b36; line-height: 1.6; }
+.account-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin-top: 18px; }
+.account-links button { border: 0; padding: 0; background: transparent; color: #204b36; cursor: pointer; text-decoration: underline; font: inherit; font-size: 13px; }
+.account-links button:disabled { opacity: .5; cursor: default; }

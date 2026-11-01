@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "check:supabase": "node server/check-supabase.js",
     "migrate:supabase": "node server/migrate-supabase.js",
-    "test": "node --test server/tests/*.test.js"
+    "test": "node --test server/tests/*.test.js",
+    "check:email": "node server/check-email.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
@@ -22,6 +23,7 @@
     "express": "^5.2.1",
     "leaflet": "^1.9.4",
     "multer": "^2.5.0",
+    "nodemailer": "^10.3.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.4",

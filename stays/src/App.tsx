@@ -14,6 +14,7 @@ import { AdminActivityPage } from './pages/portal/AdminActivityPage'
 import { AdminSettingsPage } from './pages/portal/AdminSettingsPage'
 import { HostDashboard } from './pages/portal/HostDashboard'
 import { HostListingForm } from './pages/portal/HostListingForm'
+import { AccountAction } from './pages/portal/AccountAction'
 import { AuthProvider } from './lib/auth'
 
 export default function App() {
@@ -23,6 +24,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/stay/:id" element={<StayPage />} />
+          <Route path="/verify-email" element={<AccountAction key="verify" kind="verify" />} />
+          <Route path="/reset-password" element={<AccountAction key="reset" kind="reset" />} />
           <Route path="/backend" element={<BackendHome />} />
 
           <Route

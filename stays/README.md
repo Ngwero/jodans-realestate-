@@ -10,10 +10,11 @@ Use Node.js 22.16 or newer. In Supabase's SQL Editor, run these migrations in or
 
 1. `supabase/migrations/202610300001_supabase.sql`
 2. `supabase/migrations/202611010001_keep_existing_login.sql`
+3. `supabase/migrations/202611010002_account_emails.sql`
 
 The second migration preserves existing cloud records, removes the dependency
 on Supabase Auth, and adds a backend-only password hash table. Apply it even if
-you previously ran the first migration. Both can be rerun in order.
+you previously ran the first migration. All migrations can be rerun in order.
 
 Copy `.env.example` to `.env` if it does not already exist, then set:
 
@@ -59,11 +60,11 @@ Browser roles cannot query the app tables or database functions. Public API
 routes return approved listings only. Protected requests verify the app's HMAC
 session token and read the current role and active status from the database.
 New passwords use scrypt; existing salted SHA-256 hashes remain supported.
-Registration always creates a host, regardless of request-supplied roles.
+Registration always creates an unverified host, regardless of request-supplied roles. New hosts must confirm their email before signing in. Existing imported accounts remain verified.
 
-The frontend does not require Supabase public keys, Auth redirects or SMTP.
+The frontend does not require Supabase public keys or Auth redirects. SMTP settings belong only on the backend.
 The email/password sign-in and host registration screens use the existing API.
-No Supabase Auth accounts or emails are created by import or registration.
+No Supabase Auth accounts are created. Registration sends an email confirmation through the app’s configured SMTP service.
 
 ## Run and deploy
 
@@ -114,3 +115,49 @@ schema upgrades, existing-password login, role/ownership restrictions,
 moderation, transaction conflicts, and safe import reruns. Storage is mocked;
 a live database check and a real login/upload check are still needed after
 supplying the fresh backend key and applying both SQL migrations.
+
+## Account emails
+
+The app supports confirmation emails, forgotten-password recovery, and a password-change
+notice. Configure the existing Jodans noreply mailbox on the backend:
+
+```env
+APP_URL=https://www.jodansconcepts.com
+MAIL_FROM="Jodans Concepts <noreply@jodansconcepts.com>"
+SMTP_HOST=mail.jodansconcepts.com
+SMTP_PORT=465
+SMTP_USER=noreply@jodansconcepts.com
+SMTP_PASSWORD=your-mailbox-password
+```
+
+Use the mailbox’s actual SMTP login if it differs. The password is server-only.
+Supabase’s saved SMTP password is hidden in its dashboard; the separate Express
+service needs the same credential configured in its own environment. Do not
+post credentials in chat or commit `.env`. Port 465 uses TLS; port 587 requires
+STARTTLS with certificate verification enabled. For local UI tests, set APP_URL
+to the local frontend origin. Never derive email links from request Host headers.
+
+Apply migration 3 before deploying this version. It preserves existing accounts
+and adds private token, delivery-queue, and rate-limit tables. Missing SMTP
+configuration leaves existing login working and returns an explicit temporary
+unavailable response for new signups and recovery requests. It never claims to
+have sent an email when no provider is configured.
+
+Verification links expire after 24 hours; password-reset links after 30 minutes.
+Links are single-use and newer requests replace older links. Successful resets
+revoke existing app sessions. Tokens are stored only as hashes; queued message
+payloads containing links are encrypted with a separate key derived from the
+backend secret. All replicas must use the same backend secret (or explicit
+MAIL_ENCRYPTION_SECRET). Rotating that key makes old pending mail unreadable;
+users can request new links afterward.
+
+The database-backed queue retries delivery up to six times with backoff and uses
+leases to prevent simultaneous workers from claiming the same message. SMTP may
+deliver a duplicate if a process crashes after sending and before acknowledging;
+links remain safe to use only once. Requests are rate limited without exposing
+whether an email exists. Sent mail is provider acceptance, not proof of inbox
+delivery; check your mailbox provider’s SPF/DKIM/DMARC and bounce logs.
+
+The production proxy trust default is one hop for Railway; set TRUST_PROXY=0
+for direct hosting, or adjust the topology before placing additional proxies in
+front of Express.

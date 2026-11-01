@@ -42,7 +42,7 @@ export async function verifyPassword(password, stored, settings = process.env) {
 
 export function signToken(user, secret = signingSecret()) {
   const payload = Buffer.from(JSON.stringify({ sub: user.id, role: user.role,
-    email: user.email, name: user.name, exp: Date.now() + 7 * 24 * 60 * 60 * 1000 })).toString('base64url')
+    email: user.email, name: user.name, v: user.sessionVersion || 0, exp: Date.now() + 7 * 24 * 60 * 60 * 1000 })).toString('base64url')
   return `${payload}.${crypto.createHmac('sha256', secret).update(payload).digest('base64url')}`
 }
 
@@ -65,11 +65,11 @@ export function createAuth(supabase, secret = signingSecret()) {
         const header = req.headers.authorization || ''
         const session = verifyToken(header.startsWith('Bearer ') ? header.slice(7) : '', secret)
         if (!session) return res.status(401).json({ error: 'Please sign in' })
-        const { data: profile, error } = await supabase.from('app_profiles')
-          .select('id,email,name,role,active').eq('id', session.sub).single()
-        if (error?.code === 'PGRST116' || !profile && !error) return res.status(401).json({ error: 'Please sign in again' })
+        const { data: profile, error } = await supabase.rpc('app_auth_identity', { p_id: session.sub })
         if (error) throw error
+        if (!profile || (session.v || 0) !== profile.sessionVersion) return res.status(401).json({ error: 'Please sign in again' })
         if (!profile.active) return res.status(403).json({ error: 'Account disabled' })
+        if (!profile.emailVerified) return res.status(403).json({ error: 'Confirm your email before signing in' })
         // Read current roles, rather than trusting a stale role in the token.
         if (requiredRole && profile.role !== requiredRole && profile.role !== 'admin') {
           return res.status(403).json({ error: 'Not allowed' })

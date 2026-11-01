@@ -10,6 +10,8 @@ try {
   }
   const { error: credentialsError } = await supabase.from('app_credentials').select('profile_id').limit(1)
   if (credentialsError) throw new Error('Run the existing-login SQL migration first: app_credentials is unavailable.')
+  const { error: accountError } = await supabase.rpc('app_auth_identity', { p_id: '__configuration_check__' })
+  if (accountError) throw new Error('Run the account-email SQL migration first: account functions are unavailable.')
   const { data: state, error: databaseError } = await supabase.rpc('app_read_state')
   if (databaseError) throw new Error('Database check failed. Run the SQL migration and check backend access.')
   console.log(`Supabase ready: ${state.listings.length} listings and ${state.users.length} accounts; property-photos bucket available. No project data was changed.`)

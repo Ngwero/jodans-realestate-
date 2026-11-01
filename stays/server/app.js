@@ -3,8 +3,10 @@ import express from 'express'
 import multer from 'multer'
 import { v4 as uuid } from 'uuid'
 import { resolvePlace } from './ugandaPlaces.js'
+import { installAccountRoutes } from './accounts.js'
+import { createMailTransport, createMailWorker } from './mail.js'
 import { createDatabase } from './database.js'
-import { createAuth, signToken, verifyPassword, hashPassword, signingSecret } from './auth.js'
+import { createAuth, signingSecret } from './auth.js'
 import { PHOTO_TYPES, uploadPhotos } from './photos.js'
 import path from 'node:path'
 
@@ -95,7 +97,7 @@ export function listingChanges(body) {
   return Object.fromEntries(fields.filter(key => Object.hasOwn(body, key)).map(key => [key, body[key]]))
 }
 
-export function createApp(supabase, { webDirectory } = {}) {
+export function createApp(supabase, { webDirectory, mailTransport, appUrl = process.env.APP_URL || 'https://www.jodansconcepts.com' } = {}) {
   const { readDb, writeDb } = createDatabase(supabase)
   const secret = signingSecret()
   const auth = createAuth(supabase, secret)
@@ -108,8 +110,11 @@ export function createApp(supabase, { webDirectory } = {}) {
     },
   })
   const app = express()
+  if (process.env.TRUST_PROXY === '1' || (process.env.NODE_ENV === 'production' && process.env.TRUST_PROXY !== '0')) app.set('trust proxy', 1)
   app.use(cors({ origin: process.env.WEB_ORIGIN || true }))
   app.use(express.json({ limit: '2mb' }))
+  app.use((_req, res, next) => { res.set('Referrer-Policy', 'no-referrer'); next() })
+  app.use('/api/auth', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next() })
 
   app.get('/api/health', async (_req, res, next) => {
     const { error } = await supabase.from('app_listings').select('id').limit(1)
@@ -117,44 +122,9 @@ export function createApp(supabase, { webDirectory } = {}) {
     res.json({ ok: true, service: 'jodans-bloka-api', database: 'supabase' })
   })
 
-  const sessionResponse = user => ({ token: signToken(user, secret),
-    user: { id: user.id, email: user.email, name: user.name, role: user.role } })
-
-  app.post('/api/auth/login', async (req, res) => {
-    const { email, password, role } = req.body || {}
-    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password || password.length > 1024) {
-      return res.status(400).json({ error: 'Email and password required' })
-    }
-    const db = await readDb()
-    const user = db.users.find(row => row.email.toLowerCase() === email.trim().toLowerCase())
-    if (!user || !await verifyPassword(password, user.password) || (role && user.role !== role && user.role !== 'admin')) {
-      return res.status(401).json({ error: 'Invalid email or password' })
-    }
-    if (!user.active) return res.status(403).json({ error: 'Account disabled' })
-    res.json(sessionResponse(user))
-  })
-
-  app.post('/api/auth/register-host', async (req, res) => {
-    const { email, password, name } = req.body || {}
-    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
-        typeof name !== 'string' || !name.trim() || typeof password !== 'string' || password.length < 8 || password.length > 1024) {
-      return res.status(400).json({ error: 'Name, valid email, and a password of at least 8 characters required' })
-    }
-    const db = await readDb()
-    const normalized = email.trim().toLowerCase()
-    if (db.users.some(row => row.email.toLowerCase() === normalized)) return res.status(409).json({ error: 'Email already registered' })
-    const user = { id: uuid(), email: normalized, name: name.trim(), role: 'host',
-      password: await hashPassword(password), active: true, createdAt: new Date().toISOString() }
-    db.users.push(user)
-    logActivity(db, { actor: user.email, action: 'host_registered', detail: `${user.name} joined as host` })
-    await writeDb(db)
-    res.status(201).json(sessionResponse(user))
-  })
-
-  app.get('/api/auth/me', auth(), (req, res) => {
-    const { sub: id, name, email, role } = req.user
-    res.json({ user: { id, name, email, role } })
-  })
+  const worker = createMailWorker(supabase, mailTransport || createMailTransport(), process.env.MAIL_ENCRYPTION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || secret)
+  app.locals.mailWorker = worker
+  installAccountRoutes(app, {supabase, readDb, secret, auth, worker, appUrl})
 
   app.post('/api/uploads', auth(), (req, res, next) => {
     upload.array('photos', 8)(req, res, async (error) => {

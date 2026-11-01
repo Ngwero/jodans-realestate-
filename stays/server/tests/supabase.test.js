@@ -11,11 +11,13 @@ import { uploadPhotos } from '../photos.js'
 import { migrate } from '../migrate-supabase.js'
 import { signToken, hashPassword, verifyPassword, signingSecret } from '../auth.js'
 import crypto from 'node:crypto'
+import { createMailWorker } from '../mail.js'
 
 let available = true
 try { execFileSync('initdb', ['--version'], { stdio: 'ignore' }) } catch { available = false }
 const integration = (name, fn) => test(name, { skip: !available && 'Install PostgreSQL binaries to run integration tests' }, fn)
-let directory, server, base, supabase
+let directory, server, base, supabase, application
+const delivered = []
 const tokens = {}
 const adminId = '00000000-0000-4000-8000-000000000001'
 const hostId = '00000000-0000-4000-8000-000000000002'
@@ -47,9 +49,12 @@ before(async () => {
   const upgrade = readFileSync(new URL('../../supabase/migrations/202611010001_keep_existing_login.sql', import.meta.url), 'utf8')
   query(upgrade)
   query(upgrade)
+  const emails = readFileSync(new URL('../../supabase/migrations/202611010002_account_emails.sql', import.meta.url), 'utf8')
+  query(emails)
+  query(emails)
   const legacyHash = crypto.createHash('sha256').update(`${process.env.LEGACY_JB_SECRET || signingSecret()}:original-password`).digest('hex')
   query(`insert into public.app_credentials(profile_id,password_hash) values
-    ('${hostId}',${literal(legacyHash)}), ('${adminId}',${literal(await hashPassword('admin-password-123'))});`)
+    ('${hostId}',${literal(legacyHash)}), ('${otherId}',${literal(legacyHash)}), ('${adminId}',${literal(await hashPassword('admin-password-123'))});`)
   for (const [name,id] of Object.entries({ admin:adminId, host:hostId, other:otherId })) tokens[name] = signToken({ id })
   supabase = {
     from(table) {
@@ -62,17 +67,19 @@ before(async () => {
     },
     async rpc(name, args) {
       try {
-        const sql = name === 'app_read_state' ? 'select public.app_read_state();' : `select public.app_apply_changes(${literal(JSON.stringify(args.changes))}::jsonb);`
-        const output = query(`set role service_role; ${sql}`)
-        return { data: name === 'app_read_state' ? JSON.parse(output) : null, error: null }
+        const parameters=Object.entries(args || {}).map(([key,value]) => `${key}=>${value===null?'null':literal(typeof value==='object'?JSON.stringify(value):value)}${typeof value==='object' && value!==null?'::jsonb':''}`).join(',')
+        const output=query(`set role service_role; select to_jsonb(public.${name}(${parameters}));`)
+        return {data:output?JSON.parse(output):null,error:null}
       } catch(error) { return failure(error) }
     },
   }
-  server = createApp(supabase).listen(0, '127.0.0.1')
+  application=createApp(supabase,{appUrl:'https://jodans.example',mailTransport:{ready:true,async send(message){delivered.push(message)}}})
+  server = application.listen(0, '127.0.0.1')
   await once(server, 'listening')
   base = `http://127.0.0.1:${server.address().port}`
 })
 after(async () => {
+  if(application) await application.locals.mailWorker.drain()
   if (server) await new Promise(resolve => server.close(resolve))
   if (directory) {
     try { execFileSync('pg_ctl', ['-D', path.join(directory, 'data'), '-m', 'immediate', '-w', 'stop'], { stdio: 'ignore' }) }
@@ -242,20 +249,83 @@ integration('snapshot reads include more than 1,000 listings without Data API pa
 })
 
 
-integration('existing passwords sign in; registration cannot grant admin and stores a private hash', async () => {
-  const login = await request('/api/auth/login', null, 'POST', {email:'host@example.test',password:'original-password',role:'host'})
+integration('registration emails a single-use confirmation and cannot grant admin',async()=>{
+  const login=await request('/api/auth/login',null,'POST',{email:'host@example.test',password:'original-password',role:'host'})
   assert.equal(login.status,200)
-  assert.equal((await request('/api/auth/login',null,'POST',{email:'host@example.test',password:'wrong'})).status,401)
-  const response = await request('/api/auth/register-host',null,'POST',{
-    name:'New Host',email:'NEW@example.test',password:'new-password-123',role:'admin',active:false,
-  })
-  assert.equal(response.status,201)
-  const {user,token} = await response.json()
-  assert.equal(user.role,'host')
-  assert.equal(user.password,undefined)
-  assert.equal((await request('/api/admin/stats',token)).status,403)
-  const stored = query(`select password_hash from public.app_credentials where profile_id=${literal(user.id)};`)
+  const response=await request('/api/auth/register-host',null,'POST',{name:'New Host',email:'NEW@example.test',password:'new-password-123',role:'admin',active:false})
+  assert.equal(response.status,202)
+  assert.equal((await response.json()).token,undefined)
+  await application.locals.mailWorker.drain()
+  const mail=delivered.find(message=>message.to==='new@example.test' && message.kind==='verify')
+  assert(mail)
+  assert(mail.url.startsWith('https://jodans.example/verify-email#token='))
+  const token=new URLSearchParams(new URL(mail.url).hash.slice(1)).get('token')
+  assert.equal((await request('/api/auth/login',null,'POST',{email:'new@example.test',password:'new-password-123'})).status,403)
+  assert.equal(query("select role from public.app_profiles where email='new@example.test';"),'host')
+  assert.equal(query("select count(*) from public.app_auth_tokens where token_hash="+literal(token)+';'),'0')
+  assert.equal((await request('/api/auth/verify-email',null,'POST',{token})).status,200)
+  assert.equal((await request('/api/auth/verify-email',null,'POST',{token})).status,400)
+  const confirmed=await request('/api/auth/login',null,'POST',{email:'new@example.test',password:'new-password-123'})
+  assert.equal(confirmed.status,200)
+  const session=await confirmed.json()
+  assert.equal((await request('/api/admin/stats',session.token)).status,403)
+  const stored=query(`select password_hash from public.app_credentials where profile_id=${literal(session.user.id)};`)
   assert(stored.startsWith('scrypt:'))
   assert(await verifyPassword('new-password-123',stored))
-  assert.equal((await request('/api/auth/register-host',null,'POST',{name:'Duplicate',email:'new@example.test',password:'new-password-123'})).status,409)
+})
+
+integration('password recovery is generic, tokens expire and cannot be reused, and reset revokes sessions',async()=>{
+  const oldLogin=await request('/api/auth/login',null,'POST',{email:'host@example.test',password:'original-password'})
+  const oldSession=await oldLogin.json()
+  const known=await request('/api/auth/forgot-password',null,'POST',{email:'host@example.test'})
+  const unknown=await request('/api/auth/forgot-password',null,'POST',{email:'missing@example.test'})
+  assert.equal(known.status,unknown.status)
+  assert.deepEqual(await known.json(),await unknown.json())
+  await application.locals.mailWorker.drain()
+  const mail=delivered.filter(message=>message.to==='host@example.test' && message.kind==='reset').at(-1)
+  const token=new URLSearchParams(new URL(mail.url).hash.slice(1)).get('token')
+  assert.equal(query("select count(*) from public.app_mail_outbox where payload like "+literal('%'+token+'%')+';'),'0')
+  query(`update public.app_auth_tokens set expires_at=now()-interval '1 minute' where profile_id='${hostId}' and kind='reset';`)
+  assert.equal((await request('/api/auth/reset-password',null,'POST',{token,password:'updated-password-123'})).status,400)
+  await request('/api/auth/forgot-password',null,'POST',{email:'host@example.test'})
+  await application.locals.mailWorker.drain()
+  const freshMail=delivered.filter(message=>message.to==='host@example.test' && message.kind==='reset').at(-1)
+  const freshToken=new URLSearchParams(new URL(freshMail.url).hash.slice(1)).get('token')
+  assert.notEqual(freshToken,token)
+  assert.equal((await request('/api/auth/reset-password',null,'POST',{token:freshToken,password:'updated-password-123'})).status,200)
+  assert.equal((await request('/api/auth/reset-password',null,'POST',{token:freshToken,password:'another-password'})).status,400)
+  assert.equal((await request('/api/host/listings',oldSession.token)).status,401)
+  assert.equal((await request('/api/auth/login',null,'POST',{email:'host@example.test',password:'original-password'})).status,401)
+  assert.equal((await request('/api/auth/login',null,'POST',{email:'host@example.test',password:'updated-password-123'})).status,200)
+  await application.locals.mailWorker.drain()
+  assert(delivered.some(message=>message.to==='host@example.test' && message.kind==='changed'))
+  assert(!delivered.some(message=>message.to==='missing@example.test'))
+})
+
+integration('email requests are rate limited and private email tables are protected',async()=>{
+  for(let n=0;n<5;n++)assert.equal((await request('/api/auth/forgot-password',null,'POST',{email:'limit@example.test'})).status,202)
+  assert.equal((await request('/api/auth/forgot-password',null,'POST',{email:'limit@example.test'})).status,429)
+  assert.throws(()=>query('set role authenticated; select * from public.app_auth_tokens;'))
+  assert.throws(()=>query('set role anon; select * from public.app_mail_outbox;'))
+  assert.throws(()=>query("set role authenticated; select public.app_consume_account_token('x','reset');"))
+})
+
+
+integration('failed delivery releases its lease and retries without exposing message links',async()=>{
+  await application.locals.mailWorker.drain()
+  const key=process.env.MAIL_ENCRYPTION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || signingSecret()
+  const failed=createMailWorker(supabase,{ready:true,async send(){throw new Error('provider unavailable')}},key)
+  const payload=failed.encrypt({to:'retry@example.test',kind:'changed',url:'https://jodans.example/host/login'})
+  const id=query(`insert into public.app_mail_outbox(payload) values(${literal(payload)}) returning id;`).split('\n')[0]
+  await failed.drain()
+  const state=jsonQuery(`select row_to_json(m) from public.app_mail_outbox m where id=${literal(id)};`)
+  assert.equal(state.attempts,1)
+  assert.equal(state.sent_at,null)
+  assert.equal(state.lease_id,null)
+  assert.equal(state.failed_at,null)
+  assert(new Date(state.available_at)>new Date())
+  query(`update public.app_mail_outbox set available_at=now() where id=${literal(id)};`)
+  await application.locals.mailWorker.drain()
+  assert.equal(query(`select attempts from public.app_mail_outbox where id=${literal(id)} and sent_at is not null;`),'2')
+  assert(delivered.some(message=>message.to==='retry@example.test'))
 })

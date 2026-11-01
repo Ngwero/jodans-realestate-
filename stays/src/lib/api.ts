@@ -151,9 +151,21 @@ export const api = {
       method: 'POST', body: JSON.stringify({ email, password, role }),
     }),
   registerHost: (name: string, email: string, password: string) =>
-    request<{ token: string; user: SessionUser }>('/api/auth/register-host', {
+    request<{ message: string }>('/api/auth/register-host', {
       method: 'POST', body: JSON.stringify({ name, email, password }),
     }),
+  requestPasswordReset: (email: string) => request<{ message: string }>('/api/auth/forgot-password', {
+    method: 'POST', body: JSON.stringify({ email }),
+  }),
+  resendVerification: (email: string) => request<{ message: string }>('/api/auth/resend-verification', {
+    method: 'POST', body: JSON.stringify({ email }),
+  }),
+  verifyEmail: (token: string) => request<{ message: string }>('/api/auth/verify-email', {
+    method: 'POST', body: JSON.stringify({ token }),
+  }),
+  resetPassword: (token: string, password: string) => request<{ message: string }>('/api/auth/reset-password', {
+    method: 'POST', body: JSON.stringify({ token, password }),
+  }),
   me: () => request<{ user: SessionUser }>('/api/auth/me'),
   health: () => request<{ ok: boolean }>('/api/health'),
   publicListings: () =>

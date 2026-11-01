@@ -13,7 +13,7 @@ type AuthState = {
   token: string | null
   loading: boolean
   login: (email: string, password: string, role?: 'admin' | 'host') => Promise<SessionUser>
-  registerHost: (name: string, email: string, password: string) => Promise<SessionUser>
+  registerHost: (name: string, email: string, password: string) => Promise<string>
   logout: () => void
 }
 
@@ -66,11 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async registerHost(name, email, password) {
         const res = await api.registerHost(name, email, password)
-        localStorage.setItem('jb_token', res.token)
-        localStorage.setItem('jb_user', JSON.stringify(res.user))
-        setToken(res.token)
-        setUser(res.user)
-        return res.user
+        return res.message
       },
       logout() {
         setLoading(false)
