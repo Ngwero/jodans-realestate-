@@ -20,11 +20,16 @@ Copy `.env.example` to `.env` if it does not already exist, then set:
 - `SUPABASE_URL`: your dedicated Supabase project URL.
 - `SUPABASE_SERVICE_ROLE_KEY`: a fresh backend secret or service role key. Replace
   any privileged key exposed in chat. Never put this key in a `VITE_` variable.
-- `JB_SECRET`: a stable random signing secret, at least 32 characters for
-  production. Generate one with `openssl rand -hex 32`. Changing it signs users out.
+- `JB_SECRET`: optional explicit signing secret, at least 32 characters for
+  production. Generate one with `openssl rand -hex 32`. When omitted, the app
+  derives a separate signing key from the existing backend Supabase secret using
+  HKDF. Rotating that backend key then signs users out. Replicas must use the same
+  settings; never use a public/anon key as the backend secret.
 - `LEGACY_JB_SECRET`: the secret originally used to hash existing passwords.
   The original development app used `jodans-bloka-dev-secret`. Preserve the
-  actual previous value if you had changed it. This keeps existing passwords
+  actual previous value if you had changed it. If both legacy and explicit
+  signing settings are omitted, original development hashes remain supported.
+  This keeps existing passwords
   working while allowing a new, strong token-signing secret.
 
 When importing an existing local database, its admin/host accounts and password

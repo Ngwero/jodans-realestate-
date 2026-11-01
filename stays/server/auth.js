@@ -5,9 +5,16 @@ const scrypt = promisify(crypto.scrypt)
 export const DEVELOPMENT_SECRET = 'jodans-bloka-dev-secret'
 
 export function signingSecret(settings = process.env) {
-  const secret = settings.JB_SECRET || DEVELOPMENT_SECRET
+  let secret = settings.JB_SECRET
+  if (!secret && settings.SUPABASE_SERVICE_ROLE_KEY?.length >= 32) {
+    // Domain-separated derivation keeps sessions stable across replicas without
+    // exposing or using the API key directly as a session signature secret.
+    secret = Buffer.from(crypto.hkdfSync('sha256', settings.SUPABASE_SERVICE_ROLE_KEY,
+      'jodans-bloka', 'app-session-signing-v1', 32)).toString('hex')
+  }
+  secret ||= DEVELOPMENT_SECRET
   if (settings.NODE_ENV === 'production' && (secret === DEVELOPMENT_SECRET || secret.length < 32)) {
-    throw new Error('Set a stable JB_SECRET of at least 32 characters before starting in production.')
+    throw new Error('Set JB_SECRET (at least 32 characters) or a valid backend Supabase secret before starting in production.')
   }
   return secret
 }
@@ -28,7 +35,7 @@ export async function verifyPassword(password, stored, settings = process.env) {
   }
   // Preserve existing salted SHA-256 hashes during the data import.
   if (!/^[a-f0-9]{64}$/.test(stored)) return false
-  const legacySecret = settings.LEGACY_JB_SECRET || signingSecret(settings)
+  const legacySecret = settings.LEGACY_JB_SECRET || settings.JB_SECRET || DEVELOPMENT_SECRET
   const expected = crypto.createHash('sha256').update(`${legacySecret}:${password}`).digest()
   return crypto.timingSafeEqual(expected, Buffer.from(stored, 'hex'))
 }
